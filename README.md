@@ -1,19 +1,33 @@
 # vit-emot-poc
 
-PoC (Prova de Conceito) para classificação de emoções a partir de landmarks faciais
-do dataset RAVDESS, usando modelos temporais (MLP, CNN1D, Transformer) e XAI
-(Attention Rollout + Deletion Test). Projetado para execução em **CPU**.
+Proof of concept for **emotion classification from facial landmarks** using the RAVDESS dataset. Compares three temporal architectures (MLP, CNN1D, Transformer) and includes explainability analysis (XAI). Designed to run on **CPU only**.
 
-## Estrutura do Projeto
+---
+
+## Approach
+
+Instead of processing raw video frames, the pipeline extracts **facial landmarks** (2D keypoint coordinates) and treats each clip as a **time series of shape `(T=100, D)`**. This drastically reduces dimensionality and allows lightweight models to run on CPU.
+
+```
+RAVDESS video → Facial landmarks (CSV) → Time series T×D → Temporal model → Emotion
+```
+
+7 emotion classes (neutral and calm are merged):
+
+`neutral/calm` · `happy` · `sad` · `angry` · `fearful` · `disgust` · `surprised`
+
+---
+
+## Project Structure
 
 ```
 vit-emot-poc/
 ├── data/
 │   └── ravdess_landmarks_kaggle/
-│       ├── 00_raw_kaggle_csv/      ← CSVs brutos do Kaggle (NÃO versionados)
-│       ├── 01_processed_T100/      ← Dataset normalizado T=100 (.npz)
-│       ├── 02_splits/              ← Split train/test (JSON)
-│       └── 03_qc/                  ← Manifest e relatório de QC
+│       ├── 00_raw_kaggle_csv/      ← Raw CSVs from Kaggle (NOT versioned)
+│       ├── 01_processed_T100/      ← Normalized dataset T=100 (.npz)
+│       ├── 02_splits/              ← Actor hold-out split (JSON)
+│       └── 03_qc/                  ← Manifest and QC report
 ├── notebooks/
 │   ├── 01_ingest_qc_manifest.ipynb
 │   ├── 02_preprocess_T100_dataset.ipynb
@@ -21,97 +35,99 @@ vit-emot-poc/
 │   ├── 04_train_eval_models.ipynb
 │   └── 05_xai_attention_deletion.ipynb
 ├── src/
-│   ├── __init__.py
-│   ├── ravdess_utils.py            ← Parsing RAVDESS, leitura CSV, manifest
-│   ├── temporal.py                 ← Normalização temporal (T=100)
-│   ├── metrics_utils.py            ← Métricas, seed, bootstrap
-│   └── models.py                   ← MLP, CNN1D, EmoTransformer
+│   ├── ravdess_utils.py            ← RAVDESS parsing, CSV loading, manifest
+│   ├── temporal.py                 ← Temporal normalization (T=100)
+│   ├── metrics_utils.py            ← Metrics, seed, bootstrap CI
+│   └── models.py                   ← FlatMLP, TemporalCNN1D, EmoTransformer
 ├── reports/
-│   ├── tables/                     ← Tabelas de resultados (.csv)
-│   └── figures/                    ← Figuras geradas (.png)
+│   ├── tables/                     ← Consolidated metrics (.csv)
+│   └── figures/                    ← Generated plots (.png)
 ├── runs/
 │   └── poc_v1/
-│       ├── metrics/                ← Métricas de treino e XAI
-│       └── checkpoints/            ← Checkpoints dos modelos (.pt)
-├── .gitignore
+│       ├── metrics/                ← Training metrics and XAI scores
+│       └── checkpoints/            ← Model checkpoints (.pt)
 ├── requirements.txt
 └── README.md
 ```
 
-## Dados
+---
 
-### Onde colocar os CSVs
+## Models
 
-Baixe os CSVs de facial landmark tracking do RAVDESS no Kaggle e coloque em:
+### FlatMLP
+Baseline that flattens the full time series before classification (`T × D → Linear`). No notion of temporal order — used as lower-bound reference.
+
+### TemporalCNN1D
+1D convolutions along the temporal axis to capture local motion patterns. Faster to train and more parameter-efficient than the MLP baseline.
+
+### EmoTransformer
+Transformer encoder with a **CLS token** for classification. Architecture: `d_model=64`, `2 layers`, `4 attention heads`, sinusoidal positional encoding. The CLS token aggregates information from all frames via attention, which also enables attention-based XAI.
+
+---
+
+## XAI — Explainability
+
+### Attention Rollout
+Propagates attention weights across all Transformer layers, accumulating residual attention. The CLS token's attention toward each frame produces a **temporal importance map**.
+
+### Gradient × Input
+Computes `|∂logit/∂x × x|` per feature, averaged over frames — highlights which **facial landmarks** (coordinates) most influence the prediction.
+
+### Deletion Test (Fidelity)
+Progressively masks the top-k most important frames and measures the drop in predicted class probability, compared against a random masking baseline. A faithful explanation should cause a larger drop than random.
+
+---
+
+## Data
+
+Download the RAVDESS facial landmark tracking CSVs from Kaggle and place them in:
 
 ```
 data/ravdess_landmarks_kaggle/00_raw_kaggle_csv/
 ```
 
-A estrutura interna pode conter subpastas (ex: `Actor_01/`, `Actor_02/`, etc.)
-ou arquivos diretos — o notebook 01 faz descoberta recursiva.
+The internal structure can contain subfolders (e.g. `Actor_01/`, `Actor_02/`) or flat files — notebook 01 performs recursive discovery.
 
-Os dados **não são versionados** (estão no `.gitignore`).
+Raw data is **not versioned** (listed in `.gitignore`).
+
+---
 
 ## Setup
 
-### 1. Criar ambiente virtual
+### 1. Create a virtual environment
 
 ```bash
 python -m venv venv
+
 # Windows:
 venv\Scripts\activate
+
 # Linux/Mac:
 source venv/bin/activate
 ```
 
-### 2. Instalar dependências
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Registrar kernel Jupyter (opcional)
+### 3. Register Jupyter kernel (optional)
 
 ```bash
 python -m ipykernel install --user --name vit-emot-poc
 ```
 
-## Ordem de Execução
+---
 
-Execute os notebooks na ordem, a partir da pasta `notebooks/`:
+## Execution Order
 
-| # | Notebook | Descrição | Output Principal |
-|---|----------|-----------|------------------|
-| 1 | `01_ingest_qc_manifest.ipynb` | Ingestão e QC dos CSVs | `03_qc/manifest.csv`, `03_qc/qc_report.csv` |
-| 2 | `02_preprocess_T100_dataset.ipynb` | Normalização temporal T=100 | `01_processed_T100/dataset_T100.npz` |
-| 3 | `03_split_actor_holdout.ipynb` | Split por ator (hold-out) | `02_splits/split_actor_holdout.json` |
-| 4 | `04_train_eval_models.ipynb` | Treino e avaliação (3 modelos) | `runs/poc_v1/metrics/`, `reports/` |
-| 5 | `05_xai_attention_deletion.ipynb` | XAI: atenção + deleção | `reports/figures/xai_*.png` |
+Run the notebooks in sequence from the project root:
 
-## Modelos
-
-| Modelo | Tipo | Parâmetros (aprox.) |
-|--------|------|---------------------|
-| FlatMLP | Baseline (achata T×D) | ~variável |
-| TemporalCNN1D | CNN 1D temporal | ~variável |
-| EmoTransformer | Transformer com CLS token | d_model=64, 2 layers, 4 heads |
-
-## Métricas Geradas
-
-- Accuracy, Balanced Accuracy, Macro F1
-- Classification Report completo (precision/recall/F1 por classe)
-- Confusion Matrix
-- Bootstrap 95% CI para Macro F1 (200 reamostragens)
-- Tempos de treino
-- Métricas XAI (fidelidade por deleção)
-
-## Outputs por Pasta
-
-- **`data/.../03_qc/`**: manifest.csv, qc_report.csv, qc_distributions.png
-- **`data/.../01_processed_T100/`**: dataset_T100.npz (X, y, actor_ids)
-- **`data/.../02_splits/`**: split_actor_holdout.json
-- **`runs/poc_v1/metrics/`**: metrics.csv, xai_fidelity_deletion.csv
-- **`runs/poc_v1/checkpoints/`**: best_transformer.pt
-- **`reports/tables/`**: results_table.csv
-- **`reports/figures/`**: training_curves.png, confusion_matrix_*.png, f1_per_class.png, xai_*.png
+| # | Notebook | Description | Main Output |
+|---|----------|-------------|-------------|
+| 1 | `01_ingest_qc_manifest.ipynb` | Ingest and QC raw CSVs | `03_qc/manifest.csv`, `qc_report.csv` |
+| 2 | `02_preprocess_T100_dataset.ipynb` | Normalize time series to T=100 frames | `01_processed_T100/dataset_T100.npz` |
+| 3 | `03_split_actor_holdout.ipynb` | Actor-based hold-out train/test split | `02_splits/split_actor_holdout.json` |
+| 4 | `04_train_eval_models.ipynb` | Train and evaluate all 3 models | `runs/poc_v1/`, `reports/` |
+| 5 | `05_xai_attention_deletion.ipynb` | XAI: Attention Rollout + Deletion Test | `reports/figures/xai_*.png` |
