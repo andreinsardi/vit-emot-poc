@@ -23,6 +23,37 @@ EMOTION_MAP = {
 
 EMOTION_LABELS = list(EMOTION_MAP.values())  # ordenado por código
 
+# ── Mapeamento 7 classes (merge neutral + calm) ─────────────────────────────
+# Seguindo o protocolo do EmoT (Mazzia et al., 2021):
+# calm (código RAVDESS 02) é fundido com neutral (código 01) → classe 0
+EMOTION_REMAP_7 = {
+    1: 0,  # neutral → 0
+    2: 0,  # calm → 0 (merged with neutral)
+    3: 1,  # happy → 1
+    4: 2,  # sad → 2
+    5: 3,  # angry → 3
+    6: 4,  # fearful → 4
+    7: 5,  # disgust → 5
+    8: 6,  # surprised → 6
+}
+
+EMOTION_LABELS_7 = ["neutral", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
+
+
+def remap_to_7classes(y_8class):
+    """
+    Remapeia labels 0-indexed de 8 classes para 7 classes (merge neutral+calm).
+
+    Input:  y com valores 0-7  (8 classes, 0-indexed do RAVDESS)
+    Output: y com valores 0-6  (7 classes)
+
+    Mapping (0-indexed):
+        0→0 (neutral), 1→0 (calm→neutral), 2→1 (happy), 3→2 (sad),
+        4→3 (angry), 5→4 (fearful), 6→5 (disgust), 7→6 (surprised)
+    """
+    _REMAP_TABLE = np.array([0, 0, 1, 2, 3, 4, 5, 6])
+    return _REMAP_TABLE[np.asarray(y_8class)]
+
 
 def parse_ravdess_filename(filename: str) -> dict:
     """

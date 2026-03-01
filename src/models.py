@@ -2,6 +2,7 @@
 models.py
 Definição dos 3 modelos para o PoC: MLP, CNN1D, Transformer (EmoT).
 Todos projetados para CPU-first com hiperparâmetros pequenos.
+7 classes: neutral, happy, sad, angry, fearful, disgust, surprised.
 """
 
 import math
@@ -16,7 +17,7 @@ class FlatMLP(nn.Module):
     Baseline sem modelagem temporal explícita.
     """
 
-    def __init__(self, T: int, D: int, n_classes: int, hidden: int = 256):
+    def __init__(self, T: int, D: int, n_classes: int = 7, hidden: int = 256):
         super().__init__()
         self.flatten_dim = T * D
         self.net = nn.Sequential(
@@ -42,7 +43,7 @@ class TemporalCNN1D(nn.Module):
     Input: (B, T, D) -> permute -> (B, D, T) para Conv1d.
     """
 
-    def __init__(self, T: int, D: int, n_classes: int,
+    def __init__(self, T: int, D: int, n_classes: int = 7,
                  n_filters: int = 64, kernel_size: int = 5):
         super().__init__()
         self.conv_layers = nn.Sequential(
@@ -99,7 +100,7 @@ class EmoTransformer(nn.Module):
     Salva attention weights para XAI.
     """
 
-    def __init__(self, D: int, n_classes: int,
+    def __init__(self, D: int, n_classes: int = 7,
                  d_model: int = 64, n_heads: int = 4,
                  n_layers: int = 2, dim_ff: int = 128,
                  dropout: float = 0.1, max_len: int = 200):

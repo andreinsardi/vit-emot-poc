@@ -38,6 +38,42 @@ def normalize_sequence_length(sequence: np.ndarray, target_len: int = 100) -> np
     return result.astype(np.float32)
 
 
+def compute_temporal_derivatives(X: np.ndarray) -> np.ndarray:
+    """
+    Adiciona velocidade, aceleração e jerk como canais adicionais.
+    Seguindo o protocolo do EmoT (Mazzia et al., 2021).
+
+    Args:
+        X: shape (N, T, D) — posições dos landmarks
+
+    Returns:
+        X_aug: shape (N, T, D*4) — [posição, velocidade, aceleração, jerk]
+
+    Fórmulas:
+        Velocidade:    v[t] = p[t] - p[t-1]
+        Aceleração:    a[t] = p[t+1] - 2·p[t] + p[t-1]
+        Jerk:          j[t] = p[t+2] - 2·p[t+1] + 2·p[t-1] - p[t-2]
+
+    Bordas: preenchidas com zero (frames sem vizinhos suficientes).
+    """
+    N, T, D = X.shape
+
+    # Velocidade: v[t] = p[t] - p[t-1]
+    vel = np.zeros_like(X)
+    vel[:, 1:, :] = X[:, 1:, :] - X[:, :-1, :]
+
+    # Aceleração: a[t] = p[t+1] - 2·p[t] + p[t-1]
+    acc = np.zeros_like(X)
+    acc[:, 1:-1, :] = X[:, 2:, :] - 2 * X[:, 1:-1, :] + X[:, :-2, :]
+
+    # Jerk (3ª derivada): j[t] = p[t+2] - 2·p[t+1] + 2·p[t-1] - p[t-2]
+    jrk = np.zeros_like(X)
+    jrk[:, 2:-2, :] = (X[:, 4:, :] - 2 * X[:, 3:-1, :]
+                        + 2 * X[:, 1:-3, :] - X[:, :-4, :])
+
+    return np.concatenate([X, vel, acc, jrk], axis=-1).astype(np.float32)
+
+
 def build_dataset_T100(
     manifest_df,
     load_csv_fn,
